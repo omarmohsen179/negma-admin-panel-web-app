@@ -34,6 +34,8 @@ const SessionLogs = Loadable(
   lazy(() => import("./pages/SessionLogs/SessionLogs"))
 );
 const Brokers = Loadable(lazy(() => import("./pages/Brokers/Brokers")));
+const Templates = Loadable(lazy(() => import("./pages/Templates/Templates")));
+const TemplateEditor = Loadable(lazy(() => import("./pages/Templates/TemplateEditor")));
 
 export const category = [
   {
@@ -178,6 +180,20 @@ export const pages = [
         auth: authRoles.admin,
         icon: "dashboard",
         name: "Session logs",
+      },
+      {
+        path: "/templates",
+        element: <Templates />,
+        auth: authRoles.admin,
+        icon: "description",
+        name: "Templates",
+      },
+      {
+        path: "/templates/:key/edit",
+        element: <TemplateEditor />,
+        auth: authRoles.admin,
+        icon: "description",
+        name: "Template Editor",
       },
     ],
   },

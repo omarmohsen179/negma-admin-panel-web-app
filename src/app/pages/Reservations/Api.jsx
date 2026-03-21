@@ -245,6 +245,22 @@ export const UPDATE_BROKER_DEVELOPER = async (id, data) => {
   });
 };
 
+export const GET_CONTRACT_HTML = async (id) => {
+  return await REQUEST({ method: "GET", url: `reservation/${id}/contract-html` });
+};
+
+export const SAVE_CONTRACT_HTML = async (id, htmlContent) => {
+  return await REQUEST({ method: "PUT", url: `reservation/${id}/contract-html`, data: { htmlContent } });
+};
+
+export const CLEAR_CONTRACT_HTML = async (id) => {
+  return await REQUEST({ method: "DELETE", url: `reservation/${id}/contract-html` });
+};
+
+export const REGENERATE_CONTRACT = async (id) => {
+  return await REQUEST({ method: "POST", url: `reservation/${id}/regenerate-contract` });
+};
+
 // Helper function to convert status number to string
 const getStatusString = (status) => {
   switch (status) {

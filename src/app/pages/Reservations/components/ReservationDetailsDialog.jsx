@@ -31,7 +31,10 @@ import {
   Description as DescriptionIcon,
   TableChart as TableChartIcon,
   PersonAdd as PersonAddIcon,
-  Edit as EditIcon
+  Edit as EditIcon,
+  Save as SaveIcon,
+  RestartAlt as RestartAltIcon,
+  DeleteOutline as DeleteOutlineIcon
 } from '@mui/icons-material';
 import Autocomplete from '@mui/material/Autocomplete';
 import { ImageBaseUrl } from 'app/services/config';
@@ -47,6 +50,43 @@ import {
   getClientSexText,
   getPackageTypeText
 } from '../utils/reservationHelpers';
+import {
+  GET_CONTRACT_HTML,
+  SAVE_CONTRACT_HTML,
+  CLEAR_CONTRACT_HTML,
+  REGENERATE_CONTRACT
+} from '../Api';
+
+// Determine which contract template will be used for a reservation
+// UnitType enum: Office=0, Clinic=1, Shop=2, HotelApartment=3
+// PaymentMethod: returned as string "Cash" or "Installment"
+function getContractTemplateName(reservation) {
+  const isNpm = process.env.REACT_APP_ENV === 'npm';
+  const pay = (reservation.PaymentMethod || '').toLowerCase() === 'installment' ? 'installment' : 'cash';
+  if (isNpm) {
+    const pkg = reservation.PackageType === 1 ? 'gold' : 'silver';
+    const nat = reservation.IsEgyptian ? 'egyptian' : 'foreign';
+    return `contract_hotel_${pkg}_${pay}_${nat}`;
+  }
+  const unitType = reservation.UnitType;
+  if (unitType === 2) return `contract_shop_${pay}`;
+  if (unitType === 0) return `contract_office_${pay}`;
+  return `contract_clinic_${pay}`; // Clinic=1, default
+}
+
+// Extract <body> innerHTML from a full HTML string
+function extractBodyContent(html) {
+  const match = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+  return match ? match[1] : html;
+}
+
+// Reconstruct full HTML by replacing body content
+function injectBodyContent(originalHtml, newBodyContent) {
+  if (/<body[^>]*>/i.test(originalHtml)) {
+    return originalHtml.replace(/(<body[^>]*>)([\s\S]*)(<\/body>)/i, `$1${newBodyContent}$3`);
+  }
+  return newBodyContent;
+}
 
 const ReservationDetailsDialog = React.memo(({
   open,
@@ -120,6 +160,17 @@ const ReservationDetailsDialog = React.memo(({
   const [unitChangeConfirmOpen, setUnitChangeConfirmOpen] = React.useState(false);
   const [pendingBrokerDevPayload, setPendingBrokerDevPayload] = React.useState(null);
 
+  // Contract HTML editor state
+  const [contractEditorOpen, setContractEditorOpen] = React.useState(false);
+  const [contractFullHtml, setContractFullHtml] = React.useState('');
+  const [contractEditorContent, setContractEditorContent] = React.useState('');
+  const [contractEditorLoading, setContractEditorLoading] = React.useState(false);
+  const [contractSaving, setContractSaving] = React.useState(false);
+  const [contractRegenerating, setContractRegenerating] = React.useState(false);
+  const contractIframeRef = React.useRef(null);
+  const [contractClearing, setContractClearing] = React.useState(false);
+  const [contractSnack, setContractSnack] = React.useState({ open: false, msg: '', severity: 'success' });
+
   if (!reservation) return null;
 
   const reservationClients = reservation.Clients ?? reservation.clients ?? [];
@@ -127,6 +178,65 @@ const ReservationDetailsDialog = React.memo(({
   const reservationDiscount = reservation.ReservationDiscount ?? reservation.reservationDiscount;
   const canManageClients = typeof onAddClients === 'function' && typeof onRemoveClient === 'function';
   const canEditClient = typeof onUpdateReservationClient === 'function';
+
+  const openContractEditor = async () => {
+    setContractEditorOpen(true);
+    setContractEditorLoading(true);
+    try {
+      const result = await GET_CONTRACT_HTML(reservation.Id ?? reservation.id);
+      const html = typeof result === 'string' ? result : (result?.htmlContent ?? '');
+      setContractFullHtml(html);
+      setContractEditorContent(extractBodyContent(html));
+    } catch (e) {
+      setContractSnack({ open: true, msg: 'Failed to load contract HTML', severity: 'error' });
+    } finally {
+      setContractEditorLoading(false);
+    }
+  };
+
+  const handleContractSave = async () => {
+    setContractSaving(true);
+    try {
+      // Read current body content from the live iframe (preserves all CSS classes)
+      const iframeBody = contractIframeRef.current?.contentDocument?.body;
+      const currentBodyHtml = iframeBody ? iframeBody.innerHTML : contractEditorContent;
+      const newFullHtml = injectBodyContent(contractFullHtml, currentBodyHtml);
+      await SAVE_CONTRACT_HTML(reservation.Id ?? reservation.id, newFullHtml);
+      setContractFullHtml(newFullHtml);
+      setContractSnack({ open: true, msg: 'Contract HTML saved successfully', severity: 'success' });
+    } catch (e) {
+      setContractSnack({ open: true, msg: `Save failed: ${e?.message || ''}`, severity: 'error' });
+    } finally {
+      setContractSaving(false);
+    }
+  };
+
+  const handleContractRegenerate = async () => {
+    if (!window.confirm('Regenerate the contract PDF from the current saved HTML? This will overwrite the existing PDF.')) return;
+    setContractRegenerating(true);
+    try {
+      await REGENERATE_CONTRACT(reservation.Id ?? reservation.id);
+      setContractSnack({ open: true, msg: 'Contract PDF regenerated successfully', severity: 'success' });
+    } catch (e) {
+      setContractSnack({ open: true, msg: `Regeneration failed: ${e?.message || ''}`, severity: 'error' });
+    } finally {
+      setContractRegenerating(false);
+    }
+  };
+
+  const handleContractClear = async () => {
+    if (!window.confirm('Clear the HTML override? The contract will revert to being generated from the template.')) return;
+    setContractClearing(true);
+    try {
+      await CLEAR_CONTRACT_HTML(reservation.Id ?? reservation.id);
+      setContractSnack({ open: true, msg: 'Contract HTML override cleared', severity: 'success' });
+      setContractEditorOpen(false);
+    } catch (e) {
+      setContractSnack({ open: true, msg: `Clear failed: ${e?.message || ''}`, severity: 'error' });
+    } finally {
+      setContractClearing(false);
+    }
+  };
 
   const openEditClient = (c) => {
     const reservationClientId = c.ReservationClientId ?? c.reservationClientId ?? c.Id ?? c.id;
@@ -260,21 +370,6 @@ const ReservationDetailsDialog = React.memo(({
   const handleEditClientSubmit = () => {
     if (!editingClient || !onUpdateReservationClient) return;
 
-    // Validate total ownership percentage equals 100
-    if (editClientForm.ownershipPercentage !== '' && editClientForm.ownershipPercentage !== undefined) {
-      const newPct = Number(editClientForm.ownershipPercentage);
-      const otherClientsTotal = reservationClients
-        .filter(c => (c.ReservationClientId ?? c.reservationClientId ?? c.Id ?? c.id) !== editingClient.reservationClientId)
-        .reduce((sum, c) => {
-          const pct = c.ownershipPercentage ?? c.OwnershipPercentage;
-          return sum + (pct != null ? Number(pct) : 0);
-        }, 0);
-      const total = otherClientsTotal + newPct;
-      if (Math.abs(total - 100) > 0.01) {
-        setOwnershipError(`Total ownership across all clients must equal 100%. Current total would be ${total.toFixed(2)}%.`);
-        return;
-      }
-    }
     setOwnershipError('');
 
     let sex = editClientForm.sex;
@@ -901,10 +996,32 @@ const ReservationDetailsDialog = React.memo(({
           
           <Grid item xs={4}>
             <Typography variant="subtitle2" color="textSecondary" gutterBottom>Contract PDF</Typography>
-            <DocumentPdf 
-              path={reservation.ContractPdfPath} 
+            <DocumentPdf
+              path={reservation.ContractPdfPath}
               label="Contract PDF"
             />
+            {reservation.Status === 0 && (
+              <Box mt={1}>
+                <Box mb={0.5}>
+                  <Chip
+                    size="small"
+                    label={`Template: ${getContractTemplateName(reservation)}`}
+                    variant="outlined"
+                    color="info"
+                    sx={{ fontSize: 10 }}
+                  />
+                </Box>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="secondary"
+                  startIcon={<EditIcon />}
+                  onClick={openContractEditor}
+                >
+                  Edit Contract HTML
+                </Button>
+              </Box>
+            )}
           </Grid>
           
           <Grid item xs={4}>
@@ -1706,6 +1823,99 @@ const ReservationDetailsDialog = React.memo(({
         <Button onClick={() => { setUnitChangeConfirmOpen(false); setPendingBrokerDevPayload(null); }}>Cancel</Button>
         <Button variant="contained" color="warning" onClick={() => { setUnitChangeConfirmOpen(false); submitBrokerDev(pendingBrokerDevPayload); setPendingBrokerDevPayload(null); }}>
           Continue
+        </Button>
+      </DialogActions>
+    </Dialog>
+
+    {/* Contract HTML Editor Dialog */}
+    <Dialog open={contractEditorOpen} onClose={() => setContractEditorOpen(false)} maxWidth="lg" fullWidth>
+      <DialogTitle>Edit Contract HTML</DialogTitle>
+      <DialogContent dividers>
+        {contractEditorLoading ? (
+          <Box display="flex" justifyContent="center" mt={4} mb={4}>
+            <CircularProgress />
+          </Box>
+        ) : (
+          <>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Edit the contract text below. Do not delete text in curly braces like <code>{'{{CLIENT_NAME}}'}</code> — these are placeholders replaced with real data when the contract is generated.
+            </Alert>
+            <Box sx={{ direction: 'rtl' }}>
+              <Box
+                sx={{
+                  background: '#e8e8e8',
+                  borderRadius: 1,
+                  p: 2,
+                  overflowY: 'auto',
+                  height: '65vh',
+                  display: 'flex',
+                  justifyContent: 'center',
+                }}
+              >
+                <iframe
+                  ref={contractIframeRef}
+                  title="contract-editor"
+                  srcDoc={contractFullHtml}
+                  style={{
+                    width: '794px',
+                    minHeight: '1123px',
+                    flexShrink: 0,
+                    border: 'none',
+                    boxShadow: '0 2px 12px rgba(0,0,0,0.25)',
+                    background: '#fff',
+                  }}
+                  onLoad={() => {
+                    const doc = contractIframeRef.current?.contentDocument;
+                    if (!doc?.body) return;
+                    doc.body.contentEditable = 'true';
+                    doc.body.style.outline = 'none';
+                    doc.body.style.cursor = 'text';
+                    doc.body.style.padding = '40px 50px';
+                    doc.body.style.boxSizing = 'border-box';
+                  }}
+                />
+              </Box>
+            </Box>
+          </>
+        )}
+        <Box mt={2}>
+          {contractSnack.open && (
+            <Alert severity={contractSnack.severity} onClose={() => setContractSnack(s => ({ ...s, open: false }))} sx={{ mb: 1 }}>
+              {contractSnack.msg}
+            </Alert>
+          )}
+        </Box>
+      </DialogContent>
+      <DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}>
+        <Button
+          color="error"
+          variant="outlined"
+          startIcon={contractClearing ? <CircularProgress size={16} /> : <DeleteOutlineIcon />}
+          onClick={handleContractClear}
+          disabled={contractClearing || contractSaving || contractRegenerating}
+        >
+          Clear Override
+        </Button>
+        <Button
+          color="warning"
+          variant="outlined"
+          startIcon={contractRegenerating ? <CircularProgress size={16} /> : <RestartAltIcon />}
+          onClick={handleContractRegenerate}
+          disabled={contractRegenerating || contractSaving || contractClearing}
+        >
+          {contractRegenerating ? 'Regenerating...' : 'Regenerate PDF'}
+        </Button>
+        <Button onClick={() => setContractEditorOpen(false)} disabled={contractSaving || contractRegenerating || contractClearing}>
+          Close
+        </Button>
+        <Button
+          variant="contained"
+          color="primary"
+          startIcon={contractSaving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+          onClick={handleContractSave}
+          disabled={contractSaving || contractRegenerating || contractClearing || contractEditorLoading}
+        >
+          {contractSaving ? 'Saving...' : 'Save HTML'}
         </Button>
       </DialogActions>
     </Dialog>

@@ -397,7 +397,20 @@ const Reservations = () => {
 
   const handleApproveReservation = useCallback(async () => {
     if (isApproving || !selectedReservation) return;
-    
+
+    // Validate total ownership equals 100% before approving
+    const clients = selectedReservation.ReservationClients ?? selectedReservation.reservationClients ?? [];
+    if (clients.length > 0) {
+      const total = clients.reduce((sum, c) => {
+        const pct = c.ownershipPercentage ?? c.OwnershipPercentage;
+        return sum + (pct != null ? Number(pct) : 0);
+      }, 0);
+      if (Math.abs(total - 100) > 0.01) {
+        alert(`Cannot approve: total ownership across all clients must equal 100%. Current total is ${total.toFixed(2)}%.`);
+        return;
+      }
+    }
+
     try {
       setIsApproving(true);
       await APPROVE_RESERVATION(selectedReservation.Id);
