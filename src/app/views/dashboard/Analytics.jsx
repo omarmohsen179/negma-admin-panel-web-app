@@ -159,7 +159,7 @@ const HeroBanner = () => {
           variant="h3"
           sx={{ fontWeight: 900, lineHeight: 1.15, mb: 2, fontSize: { xs: "2rem", md: "2.8rem" } }}
         >
-          Real Estate Sales
+          Real Estate Sales X
           <br />
           Management Platform
         </Typography>

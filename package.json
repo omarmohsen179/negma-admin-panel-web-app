@@ -12,6 +12,7 @@
     "build:negma:dist": "cross-env BUILD_PATH=build-negma env-cmd -f .env.negma react-scripts build",
     "build:npm:dist": "cross-env BUILD_PATH=build-npm env-cmd -f .env.npm react-scripts build",
     "build:envs": "npm run build:negma:dist && npm run build:npm:dist",
+    "publish:envs": "npm run build:envs && git add build-negma build-npm && (git diff --cached --quiet || git commit -m \"chore: env builds\") && git push",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "ghp": "react-scripts build && gh-pages -d build"

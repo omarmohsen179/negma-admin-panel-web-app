@@ -1,14 +1,10 @@
-# Plesk → Git → Additional deployment actions (paste ONE full line per subdomain).
-# CWD: ...\git repos\negma-admin
+# Plesk → Git → Additional deployment actions (CWD: ...\git repos\negma-admin)
 #
-# Each line: npm install --force → cross-env (all REACT_APP_* + BUILD_PATH + DISABLE_ESLINT_PLUGIN) →
-#            react-scripts build → robocopy that env’s output to the site folder.
-# Edit destination paths if your folders under khalidelewa.com differ.
+# Local — build both env folders, commit if needed, push (so build-negma / build-npm exist in the repo):
+#   npm run publish:envs
 #
-# --- npm site (e.g. admin.npm.khalidelewa.com) ---
-npm install --force && npx cross-env DISABLE_ESLINT_PLUGIN=true BUILD_PATH=build-npm REACT_APP_API_BASE_URL2=http://localhost:5000 REACT_APP_API_BASE_URL=https://npm-api.khalidelewa.com REACT_APP_IMAGE_BASE_URL=https://npm-api.khalidelewa.com REACT_APP_ENV=npm REACT_APP_GOOGLE_SHEET_CORS_PROXY="https://corsproxy.io/?" npx react-scripts build && (robocopy build-npm "..\..\admin.npm.khalidelewa.com" /MIR /E /NFL /NDL /NJH /NJS /nc /ns /np & if errorlevel 8 (exit /b 1) else (exit /b 0))
+# Copy only — no npm install, no build (uses build-negma + build-npm already on disk after Git pull):
+(robocopy build-negma "..\..\clinic-admin.khalidelewa.com" /MIR /E /NFL /NDL /NJH /NJS /nc /ns /np & if errorlevel 8 (exit /b 1) else (exit /b 0)) && (robocopy build-npm "..\..\admin.npm.khalidelewa.com" /MIR /E /NFL /NDL /NJH /NJS /nc /ns /np & if errorlevel 8 (exit /b 1) else (exit /b 0))
 #
-# --- negma site (edit "admin.negma..." if your folder name differs) ---
-npm install --force && npx cross-env DISABLE_ESLINT_PLUGIN=true BUILD_PATH=build-negma REACT_APP_API_BASE_URL2=http://localhost:5000 REACT_APP_API_BASE_URL=https://clinic-api.khalidelewa.com REACT_APP_IMAGE_BASE_URL=http://localhost:5000 REACT_APP_ENV=negma REACT_APP_GOOGLE_SHEET_CORS_PROXY="https://corsproxy.io/?" npx react-scripts build && (robocopy build-negma "..\..\admin.negma.khalidelewa.com" /MIR /E /NFL /NDL /NJH /NJS /nc /ns /np & if errorlevel 8 (exit /b 1) else (exit /b 0))
-#
-# Local optional: npm run build:envs (still works without .env files if you use the commands above on the server only).
+# Full server build + deploy (uncomment to use instead of the line above):
+# npm install --force && npx cross-env DISABLE_ESLINT_PLUGIN=true BUILD_PATH=build-negma REACT_APP_API_BASE_URL2=http://localhost:5000 REACT_APP_API_BASE_URL=https://clinic-api.khalidelewa.com REACT_APP_IMAGE_BASE_URL=http://localhost:5000 REACT_APP_ENV=negma REACT_APP_GOOGLE_SHEET_CORS_PROXY="https://corsproxy.io/?" npx react-scripts build && npx cross-env DISABLE_ESLINT_PLUGIN=true BUILD_PATH=build-npm REACT_APP_API_BASE_URL2=http://localhost:5000 REACT_APP_API_BASE_URL=https://npm-api.khalidelewa.com REACT_APP_IMAGE_BASE_URL=https://npm-api.khalidelewa.com REACT_APP_ENV=npm REACT_APP_GOOGLE_SHEET_CORS_PROXY="https://corsproxy.io/?" npx react-scripts build && (robocopy build-negma "..\..\clinic-admin.khalidelewa.com" /MIR /E /NFL /NDL /NJH /NJS /nc /ns /np & if errorlevel 8 (exit /b 1) else (exit /b 0)) && (robocopy build-npm "..\..\admin.npm.khalidelewa.com" /MIR /E /NFL /NDL /NJH /NJS /nc /ns /np & if errorlevel 8 (exit /b 1) else (exit /b 0))
