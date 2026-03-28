@@ -629,6 +629,7 @@ function MasterTable({
                   <Button
                     text={col.text}
                     icon={col.icon ? col.icon : null}
+                    visible={col.condition ? (e) => col.condition(e.row.data) : true}
                     onClick={(e) => {
                       col.func(e.row.data);
                     }}

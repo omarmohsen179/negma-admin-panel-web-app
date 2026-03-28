@@ -54,7 +54,8 @@ import {
   GET_CONTRACT_HTML,
   SAVE_CONTRACT_HTML,
   CLEAR_CONTRACT_HTML,
-  REGENERATE_CONTRACT
+  REGENERATE_CONTRACT,
+  RESEND_CONTRACT_EMAIL
 } from '../Api';
 
 // Determine which contract template will be used for a reservation
@@ -69,9 +70,10 @@ function getContractTemplateName(reservation) {
     return `contract_hotel_${pkg}_${pay}_${nat}`;
   }
   const unitType = reservation.UnitType;
+  const pkg = reservation.PackageType === 0 ? 'gold_' : ''; // PackageType.Golden=0
   if (unitType === 2) return `contract_shop_${pay}`;
-  if (unitType === 0) return `contract_office_${pay}`;
-  return `contract_clinic_${pay}`; // Clinic=1, default
+  if (unitType === 0) return `contract_office_${pkg}${pay}`;
+  return `contract_clinic_${pkg}${pay}`; // Clinic=1, default
 }
 
 // Extract <body> innerHTML from a full HTML string
@@ -141,6 +143,7 @@ const ReservationDetailsDialog = React.memo(({
   onUpdateReservationClient,
   isManagingClients = false,
   onUpdateBrokerDeveloper,
+  onResendSuccess,
 }) => {
   const [addClientsOpen, setAddClientsOpen] = React.useState(false);
   const [selectedUsersToAdd, setSelectedUsersToAdd] = React.useState([]);
@@ -159,6 +162,10 @@ const ReservationDetailsDialog = React.memo(({
   const [brokersLoading, setBrokersLoading] = React.useState(false);
   const [unitChangeConfirmOpen, setUnitChangeConfirmOpen] = React.useState(false);
   const [pendingBrokerDevPayload, setPendingBrokerDevPayload] = React.useState(null);
+
+  // Resend contract email state
+  const [isResendingEmail, setIsResendingEmail] = React.useState(false);
+  const [resendEmailResult, setResendEmailResult] = React.useState(null);
 
   // Contract HTML editor state
   const [contractEditorOpen, setContractEditorOpen] = React.useState(false);
@@ -285,6 +292,7 @@ const ReservationDetailsDialog = React.memo(({
       developerCompany: reservation.DeveloperCompany ?? '',
       developerTeamLeader: reservation.DeveloperTeamLeader ?? '',
       feedback: reservation.Feedback ?? '',
+      packageType: reservation.PackageType ?? 1,
     });
     setBrokerDevError('');
     setBrokerDevSuccess('');
@@ -329,6 +337,7 @@ const ReservationDetailsDialog = React.memo(({
       developerCompany: reservation.DeveloperCompany ?? '',
       developerTeamLeader: reservation.DeveloperTeamLeader ?? '',
       feedback: reservation.Feedback ?? '',
+      packageType: reservation.PackageType ?? 1,
     };
     const payload = {};
     if (brokerDevForm.unitId !== original.unitId) payload.unitId = brokerDevForm.unitId;
@@ -338,6 +347,7 @@ const ReservationDetailsDialog = React.memo(({
     if (brokerDevForm.developerCompany !== original.developerCompany) payload.developerCompany = brokerDevForm.developerCompany;
     if (brokerDevForm.developerTeamLeader !== original.developerTeamLeader) payload.developerTeamLeader = brokerDevForm.developerTeamLeader;
     if (brokerDevForm.feedback !== original.feedback) payload.feedback = brokerDevForm.feedback;
+    if (brokerDevForm.packageType !== original.packageType) payload.packageType = brokerDevForm.packageType;
     return payload;
   };
 
@@ -518,9 +528,9 @@ const ReservationDetailsDialog = React.memo(({
                             {(ownership !== undefined && ownership !== null) && <Grid item xs={12} sm={6}><Typography variant="caption" color="textSecondary">Ownership %</Typography><Typography variant="body2" display="block">{ownership}</Typography></Grid>}
                             <Grid item xs={12} sm={6}><Typography variant="caption" color="textSecondary">Egyptian</Typography><Typography variant="body2" display="block">{isEgyptian === true ? 'Yes' : isEgyptian === false ? 'No' : 'N/A'}</Typography></Grid>
                             <Grid item xs={12} sm={6}><Typography variant="caption" color="textSecondary">ID Number</Typography><Typography variant="body2" display="block">{idNumber}</Typography></Grid>
-                            <Grid item xs={12} sm={6}><Typography variant="caption" color="textSecondary">Nationality</Typography><Typography variant="body2" display="block">{nationality}</Typography></Grid>
+                            {/* <Grid item xs={12} sm={6}><Typography variant="caption" color="textSecondary">Nationality</Typography><Typography variant="body2" display="block">{nationality}</Typography></Grid> */}
                             <Grid item xs={12} sm={6}><Typography variant="caption" color="textSecondary">Address</Typography><Typography variant="body2" display="block">{address || 'N/A'}</Typography></Grid>
-                            <Grid item xs={12} sm={6}><Typography variant="caption" color="textSecondary">Occupation</Typography><Typography variant="body2" display="block">{jobTitle || 'N/A'}</Typography></Grid>
+                            <Grid item xs={12} sm={6}><Typography variant="caption" color="textSecondary">Job</Typography><Typography variant="body2" display="block">{jobTitle || 'N/A'}</Typography></Grid>
                             <Grid item xs={12} sm={6}><Typography variant="caption" color="textSecondary">Sex</Typography><Typography variant="body2" display="block">{typeof sex === 'number' ? getClientSexText(sex) : (sex || 'N/A')}</Typography></Grid>
                           </Grid>
                         </CardContent>
@@ -654,6 +664,7 @@ const ReservationDetailsDialog = React.memo(({
               <Grid item xs={6}><Typography variant="subtitle2" color="textSecondary">Broker Name</Typography><Typography variant="body1">{reservation.BrokerName || 'N/A'}</Typography></Grid>
               <Grid item xs={6}><Typography variant="subtitle2" color="textSecondary">Company</Typography><Typography variant="body1">{reservation.BrokerCompany || reservation.DeveloperCompany || 'N/A'}</Typography></Grid>
               <Grid item xs={6}><Typography variant="subtitle2" color="textSecondary">Direct Manager</Typography><Typography variant="body1">{reservation.DirectManager || 'N/A'}</Typography></Grid>
+              <Grid item xs={6}><Typography variant="subtitle2" color="textSecondary">Package Type</Typography><Typography variant="body1">{reservation.PackageType === 0 ? 'Golden' : 'Silver'}</Typography></Grid>
               <Grid item xs={12}><Typography variant="h6" gutterBottom sx={{ mt: 1 }}>Developer Information</Typography></Grid>
               <Grid item xs={6}><Typography variant="subtitle2" color="textSecondary">Developer Sales</Typography><Typography variant="body1">{reservation.DeveloperSales || 'N/A'}</Typography></Grid>
               <Grid item xs={6}><Typography variant="subtitle2" color="textSecondary">Developer Company</Typography><Typography variant="body1">{reservation.DeveloperCompany || 'N/A'}</Typography></Grid>
@@ -706,6 +717,30 @@ const ReservationDetailsDialog = React.memo(({
               </Grid>
               <Grid item xs={12}>
                 <TextField fullWidth label="Feedback" value={brokerDevForm.feedback ?? ''} onChange={(e) => setBrokerDevForm(prev => ({ ...prev, feedback: e.target.value }))} multiline minRows={2} />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  select
+                  fullWidth
+                  label="Package Type"
+                  value={brokerDevForm.packageType ?? 1}
+                  onChange={(e) => setBrokerDevForm(prev => ({ ...prev, packageType: Number(e.target.value) }))}
+                >
+                  <MenuItem value={0}>
+                    Golden
+                    {(() => {
+                      const u = unitsList.find(u => u.Id === brokerDevForm.unitId);
+                      return u?.GoldPrice != null ? ` — ${Number(u.GoldPrice).toLocaleString()} EGP` : '';
+                    })()}
+                  </MenuItem>
+                  <MenuItem value={1}>
+                    Silver
+                    {(() => {
+                      const u = unitsList.find(u => u.Id === brokerDevForm.unitId);
+                      return u?.Price != null ? ` — ${Number(u.Price).toLocaleString()} EGP` : '';
+                    })()}
+                  </MenuItem>
+                </TextField>
               </Grid>
               {brokerDevError && (
                 <Grid item xs={12}><Alert severity="error">{brokerDevError}</Alert></Grid>
@@ -1147,6 +1182,69 @@ const ReservationDetailsDialog = React.memo(({
               </Grid>
             </>
           )}
+
+          {/* Resend Contract Email Section */}
+          {(reservation.Status === 1 || reservation.Status === 2) && (() => {
+            const isInstallment = reservation.PaymentMethod && reservation.PaymentMethod.toLowerCase() !== 'cash';
+            const scheduleEmpty = !reservation.InstallmentScheduleJson || reservation.InstallmentScheduleJson === '[]' || reservation.InstallmentScheduleJson.trim() === '';
+            const maintenanceEmpty = !reservation.MaintenancePlanJson || reservation.MaintenancePlanJson === '[]' || reservation.MaintenancePlanJson.trim() === '';
+            const missingInstallmentDocs = isInstallment && (scheduleEmpty || maintenanceEmpty);
+            const clients = reservation.Clients ?? reservation.clients ?? [];
+            const ownershipTotal = clients.reduce((sum, c) => sum + (Number(c.ownershipPercentage ?? c.OwnershipPercentage) || 0), 0);
+            const ownershipInvalid = clients.length > 0 && Math.abs(ownershipTotal - 100) > 0.01;
+            const hasValidationErrors = missingInstallmentDocs || ownershipInvalid;
+            return (
+              <Grid item xs={12}>
+                <Box sx={{ mt: 3, pt: 2, borderTop: '2px solid #e0e0e0' }}>
+                  <Typography variant="h6" gutterBottom>Resend Contract</Typography>
+                  <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+                    Resend the contract email to the client.
+                  </Typography>
+                  {missingInstallmentDocs && (
+                    <Alert severity="warning" sx={{ mb: 1 }}>
+                      Cannot resend — missing required installment documents:
+                      <Box component="ul" sx={{ mt: 0.5, mb: 0, pl: 2 }}>
+                        {scheduleEmpty && <li>Installment Schedule</li>}
+                        {maintenanceEmpty && <li>Maintenance Plan</li>}
+                      </Box>
+                    </Alert>
+                  )}
+                  {ownershipInvalid && (
+                    <Alert severity="warning" sx={{ mb: 1 }}>
+                      Cannot resend — client ownership percentages must total 100% (currently {ownershipTotal.toFixed(2)}%).
+                    </Alert>
+                  )}
+                  {resendEmailResult && (
+                    <Alert severity={resendEmailResult.success ? 'success' : 'error'} sx={{ mb: 2 }}>
+                      {resendEmailResult.message}
+                    </Alert>
+                  )}
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    startIcon={isResendingEmail ? <CircularProgress size={20} color="inherit" /> : null}
+                    disabled={isResendingEmail || hasValidationErrors}
+                    onClick={async () => {
+                      setIsResendingEmail(true);
+                      setResendEmailResult(null);
+                      try {
+                        const res = await RESEND_CONTRACT_EMAIL(reservation.Id ?? reservation.id);
+                        setResendEmailResult({ success: true, message: res?.message || 'Contract email sent successfully.' });
+                        if (typeof onResendSuccess === 'function') onResendSuccess();
+                      } catch (err) {
+                        const errMsg = err?.error || err?.message || 'Failed to send contract email.';
+                        setResendEmailResult({ success: false, message: errMsg });
+                      } finally {
+                        setIsResendingEmail(false);
+                      }
+                    }}
+                  >
+                    {isResendingEmail ? 'Sending...' : 'Resend Contract Email'}
+                  </Button>
+                </Box>
+              </Grid>
+            );
+          })()}
 
           {/* Approval Section */}
           {reservation.Status === 0 && (

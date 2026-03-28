@@ -881,374 +881,153 @@ const Reservations = () => {
       await workbook.xlsx.load(arrayBuffer);
 
       let worksheet = null;
-      let worksheetIndex = 0;
-      
+
       for (let wsIndex = 0; wsIndex < workbook.worksheets.length; wsIndex++) {
         const ws = workbook.worksheets[wsIndex];
-        console.log(`Checking worksheet ${wsIndex + 1}: "${ws.name}", rows: ${ws.rowCount}`);
         if (ws.rowCount > 0) {
           worksheet = ws;
-          worksheetIndex = wsIndex;
           break;
         }
       }
-      
+
       if (!worksheet) {
         throw new Error('Excel file is empty or invalid');
       }
 
-      console.log(`Using worksheet ${worksheetIndex + 1}: "${worksheet.name}", Total rows: ${worksheet.rowCount}, Total columns: ${worksheet.columnCount}`);
-      
+      // Format a JS Date as D/M/YYYY
+      const formatDateDisplay = (date) => {
+        if (!date || !(date instanceof Date) || isNaN(date.getTime())) return '';
+        return `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
+      };
+
+      // Get cell text - handles ExcelJS-specific cell types (formulas, richText, dates, errors)
       const getCellText = (cell) => {
         if (!cell || cell.value === null || cell.value === undefined) return '';
-        
         const value = cell.value;
-        
-        if (value instanceof Date) {
-          return value.toLocaleDateString();
-        }
-        
-        if (typeof value === 'object' && value !== null && value.formula) {
-          const formulaStr = value.formula || '';
-          const fallbackMatch = formulaStr.match(/,"([^"]+)"/);
-          if (fallbackMatch && fallbackMatch[1]) {
-            return fallbackMatch[1].trim();
+
+        // Direct Date object
+        if (value instanceof Date) return formatDateDisplay(value);
+
+        // Formula cell: { formula: "...", result: <value> }
+        if (typeof value === 'object' && value !== null && value.formula !== undefined) {
+          const result = value.result;
+          if (result === null || result === undefined) return '';
+          if (result instanceof Date) return formatDateDisplay(result);
+          if (typeof result === 'object') {
+            // Excel error object e.g. { error: '#REF!' } or unknown object
+            if (result.error) return '';
+            if (result.richText) return result.richText.map(rt => rt.text || '').join('');
+            if (result.text) return String(result.text).trim();
+            return '';
           }
-          if (value.result !== undefined) {
-            return String(value.result);
-          }
+          return String(result).trim();
         }
-        
-        if (typeof value === 'object' && value.richText) {
+
+        // RichText cell
+        if (typeof value === 'object' && value !== null && value.richText) {
           return value.richText.map(rt => rt.text || '').join('');
         }
-        
+
+        // Hyperlink or other object with .text
+        if (typeof value === 'object' && value !== null) {
+          if (value.text) return String(value.text).trim();
+          if (value.error) return '';
+          return '';
+        }
+
         return String(value).trim();
       };
 
-      // Find the payment plan table by looking for header row
+      // Parse number - same as Google Sheets parser (handles European format: 1.234,56)
+      const parseNum = (v) => {
+        if (v == null || v === '') return 0;
+        // For formula/object cells, extract numeric result directly
+        if (typeof v === 'object' && v !== null) {
+          if (v instanceof Date) return 0;
+          if (v.result !== undefined) return parseNum(v.result);
+          return 0;
+        }
+        if (typeof v === 'number') return isNaN(v) ? 0 : v;
+        let s = String(v).trim();
+        if (!s) return 0;
+        // European format: 1.234,56 or 1.138.510,19
+        if (/,\d{1,3}$/.test(s)) {
+          s = s.replace(/\./g, '').replace(',', '.');
+        } else {
+          s = s.replace(/,/g, '');
+        }
+        const n = parseFloat(s);
+        return isNaN(n) ? 0 : n;
+      };
+
+      const toLower = (s) => (s || '').toLowerCase().trim();
+
+      // Scan rows 1-20 for the header row (same as Google Sheets: scan first 20 rows)
       let headerRowIndex = -1;
-      let yearColIndex = -1;
-      let installmentColIndex = -1;
-      let amountColIndex = -1;
-      let dueDateColIndex = -1;
-      let percentageColIndex = -1;
+      let yearCol = -1, installmentCol = -1, pctCol = -1, dueDateCol = -1, amountCol = -1;
 
-      // Check row 11 directly as it's likely the header row
-      console.log('Checking row 11 for header (Year | Installment | % | Due Date | Amount)...');
-      const row11 = worksheet.getRow(11);
-      if (row11) {
-        let foundInstallment = false;
-        let foundAmount = false;
-        
-        for (let j = 1; j <= row11.cellCount; j++) {
-          const cell = row11.getCell(j);
-          const cellText = getCellText(cell).toLowerCase().trim();
-          const cellValue = cell?.value;
-          
-          let checkText = cellText;
-          if (!checkText && cellValue) {
-            checkText = String(cellValue).toLowerCase().trim();
-          }
-          
-          if ((checkText === 'year' || checkText.includes('year')) && yearColIndex <= 0) {
-            yearColIndex = j;
-          }
-          
-          if ((checkText === 'installment' || 
-               checkText.includes('installment') || 
-               checkText === 'payment' ||
-               checkText.includes('payment') ||
-               checkText === 'quarter') && installmentColIndex <= 0) {
-            installmentColIndex = j;
-            foundInstallment = true;
-          }
-          
-          if ((checkText === 'amount' || 
-               checkText.includes('amount') ||
-               checkText === 'value' ||
-               checkText.includes('value')) && amountColIndex <= 0) {
-            amountColIndex = j;
-            foundAmount = true;
-          }
-          
-          if ((checkText === 'due date' || 
-               checkText.includes('due date') ||
-               (checkText === 'date' && !checkText.includes('amount'))) && dueDateColIndex <= 0) {
-            dueDateColIndex = j;
-          }
+      for (let r = 1; r <= Math.min(20, worksheet.rowCount); r++) {
+        const row = worksheet.getRow(r);
+        let foundInstallment = false, foundAmount = false;
+        let rYear = -1, rInst = -1, rPct = -1, rDue = -1, rAmt = -1;
 
-          if ((checkText === '%' || 
-               checkText === 'percent' || 
-               checkText === 'percentage' ||
-               checkText.includes('percent')) && percentageColIndex <= 0) {
-            percentageColIndex = j;
-          }
+        for (let c = 1; c <= Math.max(row.cellCount, 10); c++) {
+          const cell = toLower(getCellText(row.getCell(c)));
+          if ((cell === 'year' || cell.includes('year')) && rYear < 0) rYear = c;
+          if ((cell === 'installment' || cell.includes('installment') || cell.includes('payment')) && rInst < 0) { rInst = c; foundInstallment = true; }
+          if ((cell === '%' || cell === 'percent' || cell.includes('percent')) && rPct < 0) rPct = c;
+          if ((cell === 'due date' || cell.includes('due date') || (cell === 'date' && !cell.includes('amount'))) && rDue < 0) rDue = c;
+          if ((cell === 'amount' || cell.includes('amount')) && rAmt < 0) { rAmt = c; foundAmount = true; }
         }
 
         if (foundInstallment && foundAmount) {
-          headerRowIndex = 11;
-        } else {
-          const row12 = worksheet.getRow(12);
-          if (row12) {
-            const col2Text = getCellText(row12.getCell(2)).toLowerCase().trim();
-            const col5Value = row12.getCell(5)?.value;
-            
-            const hasInstallmentData = col2Text === 'q1' || col2Text === 'q2' || col2Text === 'q3' || 
-                                     col2Text === 'q4' || col2Text.includes('down payment') || 
-                                     col2Text.includes('downpayment');
-            
-            const hasAmountData = (typeof col5Value === 'number' && col5Value > 1000) ||
-                                 (typeof col5Value === 'string' && parseFloat(col5Value.replace(/[^\d.-]/g, '')) > 1000);
-            
-            if (hasInstallmentData && hasAmountData) {
-              yearColIndex = 1;
-              installmentColIndex = 2;
-              amountColIndex = 5;
-              dueDateColIndex = 4;
-              percentageColIndex = 3;
-              headerRowIndex = 11;
-              foundInstallment = true;
-              foundAmount = true;
-            }
-          }
+          headerRowIndex = r;
+          yearCol = rYear > 0 ? rYear : 1;
+          installmentCol = rInst;
+          pctCol = rPct > 0 ? rPct : -1;
+          dueDateCol = rDue > 0 ? rDue : -1;
+          amountCol = rAmt;
+          break;
         }
       }
 
-      // If row 11 doesn't have the header, search from row 11 onwards
-      if (headerRowIndex === -1 || installmentColIndex <= 0 || amountColIndex <= 0) {
-        console.log('Row 11 check failed, searching from row 11 onwards for header row...');
-        for (let i = 11; i <= Math.min(50, worksheet.rowCount); i++) {
-          const row = worksheet.getRow(i);
-          if (!row) continue;
-
-          let foundInstallment = false;
-          let foundAmount = false;
-
-          for (let j = 1; j <= row.cellCount; j++) {
-            const cell = row.getCell(j);
-            const cellText = getCellText(cell).toLowerCase().trim();
-            
-            if ((cellText === 'year' || cellText.includes('year')) && yearColIndex <= 0) {
-              yearColIndex = j;
-            }
-
-            if ((cellText === 'installment' || 
-                 cellText.includes('installment') || 
-                 cellText === 'payment' ||
-                 cellText.includes('payment') ||
-                 cellText === 'quarter') && installmentColIndex <= 0) {
-              installmentColIndex = j;
-              foundInstallment = true;
-            }
-            
-            if ((cellText === 'amount' || 
-                 cellText.includes('amount') ||
-                 cellText === 'value' ||
-                 cellText.includes('value')) && amountColIndex <= 0) {
-              amountColIndex = j;
-              foundAmount = true;
-            }
-            
-            if ((cellText === 'due date' || 
-                 cellText.includes('due date') ||
-                 cellText === 'date' ||
-                 cellText.includes('date')) && dueDateColIndex <= 0) {
-              dueDateColIndex = j;
-            }
-
-            if ((cellText === '%' || 
-                 cellText === 'percent' || 
-                 cellText === 'percentage' ||
-                 cellText.includes('percent')) && percentageColIndex <= 0) {
-              percentageColIndex = j;
-            }
-          }
-
-          if (foundInstallment && foundAmount) {
-            headerRowIndex = i;
-            break;
-          }
-        }
-      }
-      
-      // If header not found by text, try to find by data pattern
-      if (headerRowIndex === -1 || installmentColIndex <= 0 || amountColIndex <= 0) {
-        console.log('Header row not found by text, trying data pattern detection starting from row 12...');
-        for (let i = 12; i <= Math.min(50, worksheet.rowCount); i++) {
-          const row = worksheet.getRow(i);
-          if (!row) continue;
-          
-          for (let j = 1; j <= row.cellCount; j++) {
-            const cell = row.getCell(j);
-            const cellText = getCellText(cell).toLowerCase().trim();
-            
-            const isQuarterlyInstallment = cellText === 'q1' || 
-                                          cellText === 'q2' || 
-                                          cellText === 'q3' || 
-                                          cellText === 'q4' ||
-                                          cellText.includes('down payment') ||
-                                          cellText.includes('downpayment');
-            
-            if (isQuarterlyInstallment && installmentColIndex <= 0) {
-              for (let k = j + 1; k <= Math.min(j + 10, row.cellCount); k++) {
-                const testCell = row.getCell(k);
-                const testValue = testCell?.value;
-                
-                if (testValue instanceof Date) {
-                  if (dueDateColIndex <= 0) {
-                    dueDateColIndex = k;
-                  }
-                  continue;
-                }
-                
-                let isValidAmount = false;
-                if (typeof testValue === 'number') {
-                  if (testValue > 1000 && testValue < 100000000) {
-                    isValidAmount = true;
-                  }
-                } else if (typeof testValue === 'string') {
-                  const numValue = parseFloat(testValue.replace(/[^\d.-]/g, ''));
-                  if (!isNaN(numValue) && numValue > 1000 && numValue < 100000000) {
-                    isValidAmount = true;
-                  }
-                }
-                
-                if (isValidAmount) {
-                  installmentColIndex = j;
-                  amountColIndex = k;
-                  headerRowIndex = i > 1 ? i - 1 : i;
-                  break;
-                }
-              }
-              
-              if (installmentColIndex > 0 && amountColIndex > 0) break;
-            }
-          }
-          
-          if (installmentColIndex > 0 && amountColIndex > 0) break;
-        }
-      }
-      
-      // Final fallback: Check row 12 directly for data and infer columns
-      if (headerRowIndex === -1 || installmentColIndex <= 0 || amountColIndex <= 0) {
-        console.log('Trying final fallback: checking row 12 for data pattern...');
-        const row12 = worksheet.getRow(12);
-        if (row12) {
-          for (let j = 1; j <= row12.cellCount; j++) {
-            const cell = row12.getCell(j);
-            const cellText = getCellText(cell).toLowerCase().trim();
-            
-            const isInstallment = cellText === 'q1' || 
-                                 cellText === 'q2' || 
-                                 cellText === 'q3' || 
-                                 cellText === 'q4' ||
-                                 cellText.includes('down payment') ||
-                                 cellText.includes('downpayment');
-            
-            if (isInstallment && installmentColIndex <= 0) {
-              installmentColIndex = j;
-              let maxAmount = 0;
-              let maxAmountCol = -1;
-              
-              for (let k = j + 1; k <= Math.min(j + 5, row12.cellCount); k++) {
-                const testCell = row12.getCell(k);
-                const testValue = testCell?.value;
-                
-                if (testValue instanceof Date) {
-                  if (!dueDateColIndex) {
-                    dueDateColIndex = k;
-                  }
-                  continue;
-                }
-                
-                let amount = 0;
-                if (typeof testValue === 'number') {
-                  if (testValue > 1000 && testValue < 100000000) {
-                    amount = testValue;
-                  }
-                } else if (typeof testValue === 'string') {
-                  const numValue = parseFloat(testValue.replace(/[^\d.-]/g, ''));
-                  if (!isNaN(numValue) && numValue > 1000 && numValue < 100000000) {
-                    amount = numValue;
-                  }
-                }
-                
-                if (amount > maxAmount) {
-                  maxAmount = amount;
-                  maxAmountCol = k;
-                }
-              }
-              
-              if (maxAmountCol > 0) {
-                amountColIndex = maxAmountCol;
-                headerRowIndex = 11;
-                break;
-              }
-            }
-          }
-        }
-      }
-      
-      if (headerRowIndex === -1 || installmentColIndex <= 0 || amountColIndex <= 0) {
-        throw new Error('Could not find installments table in Excel file. Please ensure the file has columns for Installment and Amount starting from row 11 or 12.');
+      if (headerRowIndex === -1) {
+        throw new Error('Could not find installments table in Excel file. Ensure the file has "Installment" and "Amount" column headers.');
       }
 
-      console.log(`Found table: Header at row ${headerRowIndex}, Year column: ${yearColIndex > 0 ? yearColIndex : 'N/A'}, Installment column: ${installmentColIndex}, Amount column: ${amountColIndex}, Due Date column: ${dueDateColIndex > 0 ? dueDateColIndex : 'N/A'}, Percentage column: ${percentageColIndex > 0 ? percentageColIndex : 'N/A'}`);
+      console.log(`Found table: Header at row ${headerRowIndex}, Year col: ${yearCol}, Installment col: ${installmentCol}, % col: ${pctCol}, Due Date col: ${dueDateCol}, Amount col: ${amountCol}`);
 
-      // Read installments starting from headerRowIndex + 1
       const installments = [];
       const maintenanceDeposit = [];
       const profitData = [];
       let currentId = 1;
+      let maintenanceId = 1;
       let foundMaintenanceSection = false;
       let foundProfitSection = false;
       let profitColsExcel = null;
-      let processedRows = 0;
-      let skippedRows = 0;
+      let maintenanceCols = null;
 
-      console.log(`Starting to read data from row ${headerRowIndex + 1} to ${worksheet.rowCount}`);
-
-      for (let i = headerRowIndex + 1; i <= Math.min(headerRowIndex + 100, worksheet.rowCount); i++) {
+      for (let i = headerRowIndex + 1; i <= Math.min(headerRowIndex + 200, worksheet.rowCount); i++) {
         const row = worksheet.getRow(i);
-        if (!row) {
-          skippedRows++;
-          continue;
-        }
+        if (!row) continue;
 
-        const yearCell = yearColIndex > 0 ? row.getCell(yearColIndex) : null;
-        const installmentCell = row.getCell(installmentColIndex);
-        const amountCell = row.getCell(amountColIndex);
-        const dueDateCell = dueDateColIndex > 0 ? row.getCell(dueDateColIndex) : null;
-        const percentageCell = percentageColIndex > 0 ? row.getCell(percentageColIndex) : null;
-
-        const yearText = yearCell ? getCellText(yearCell).trim() : null;
-        const installmentTextRaw = getCellText(installmentCell).trim();
-        const installmentText = installmentTextRaw.toLowerCase();
-        const amountValue = amountCell?.value;
-        const dueDateValue = dueDateCell?.value;
-
-        // Debug first few rows
-        if (i <= headerRowIndex + 10) {
-          console.log(`Row ${i}: installmentText="${installmentTextRaw}" (lowercase: "${installmentText}"), amountValue=${amountValue}, amountType=${typeof amountValue}, amountCell.text=${getCellText(amountCell)}, dueDateValue=${dueDateValue}`);
-        }
-
-        // Check for profit table header (any cell containing "operation year")
+        // Check for profit table header
         if (!foundProfitSection) {
-          for (let j = 1; j <= Math.max(row.cellCount, 15); j++) {
-            if (getCellText(row.getCell(j)).toLowerCase().includes('operation year')) {
-              foundProfitSection = true;
-              profitColsExcel = [];
-              for (let k = 1; k <= Math.max(row.cellCount, 15); k++) {
-                profitColsExcel.push(getCellText(row.getCell(k)).trim());
-              }
-              break;
-            }
+          let hasProfitHeader = false;
+          let tempCols = [];
+          for (let c = 1; c <= Math.max(row.cellCount, 15); c++) {
+            const txt = getCellText(row.getCell(c)).trim();
+            tempCols.push(txt);
+            if (toLower(txt).includes('operation year')) hasProfitHeader = true;
           }
-          if (foundProfitSection) continue;
+          if (hasProfitHeader) {
+            foundProfitSection = true;
+            profitColsExcel = tempCols;
+            continue;
+          }
         }
 
-        // Collect profit section rows
+        // Collect profit rows
         if (foundProfitSection && profitColsExcel) {
           const rowObj = {};
           let hasAnyValue = false;
@@ -1259,159 +1038,112 @@ const Reservations = () => {
             rowObj[headerName] = cellVal;
             if (cellVal) hasAnyValue = true;
           }
-          if (hasAnyValue) { profitData.push(rowObj); processedRows++; }
+          if (hasAnyValue) profitData.push(rowObj);
           continue;
         }
 
-        // Check if we've reached the maintenance deposit section
-        if (installmentText.includes('maintenance') || installmentText.includes('deposit')) {
+        let yearVal, installmentVal, amountRaw, pctRaw, dueRaw;
+
+        if (foundMaintenanceSection && maintenanceCols !== null) {
+          installmentVal = getCellText(row.getCell(maintenanceCols.inst)).trim();
+          pctRaw = row.getCell(maintenanceCols.pct)?.value;
+          dueRaw = row.getCell(maintenanceCols.due)?.value;
+          amountRaw = row.getCell(maintenanceCols.amount)?.value;
+          yearVal = '';
+        } else {
+          yearVal = yearCol > 0 ? getCellText(row.getCell(yearCol)).trim() : '';
+          installmentVal = getCellText(row.getCell(installmentCol)).trim();
+          amountRaw = row.getCell(amountCol)?.value;
+          pctRaw = pctCol > 0 ? row.getCell(pctCol)?.value : null;
+          dueRaw = dueDateCol > 0 ? row.getCell(dueDateCol)?.value : null;
+        }
+
+        const instLower = toLower(installmentVal);
+        const yearLower = toLower(yearVal);
+
+        // Detect maintenance section (check year cell too, same as Google Sheets)
+        if (yearLower.includes('maintenance') || yearLower.includes('deposit') ||
+            instLower.includes('maintenance') || instLower.includes('deposit')) {
           foundMaintenanceSection = true;
           continue;
         }
 
-        // Parse amount - try multiple methods
-        let rawAmount = 0;
-        
-        // First, try direct numeric value
-        if (typeof amountValue === 'number') {
-          rawAmount = amountValue;
-        } 
-        // Try formula result
-        else if (amountValue && typeof amountValue === 'object' && amountValue.result !== undefined) {
-          if (typeof amountValue.result === 'number') {
-            rawAmount = amountValue.result;
-          } else if (typeof amountValue.result === 'string') {
-            const cleaned = amountValue.result.replace(/[^\d.-]/g, '');
-            const parsed = parseFloat(cleaned);
-            if (!isNaN(parsed)) {
-              rawAmount = parsed;
-            }
+        // Detect maintenance sub-header row by scanning for its own column positions
+        if (foundMaintenanceSection && maintenanceCols === null) {
+          let mInst = -1, mPct = -1, mDue = -1, mAmt = -1;
+          const rowCellCount = Math.max(row.cellCount, 10);
+          for (let c = 1; c <= rowCellCount; c++) {
+            const cellTxt = toLower(getCellText(row.getCell(c)));
+            if ((cellTxt === 'installment' || cellTxt.includes('installment')) && mInst < 0) mInst = c;
+            if ((cellTxt === '%' || cellTxt === 'percent' || cellTxt.includes('percent')) && mPct < 0) mPct = c;
+            if ((cellTxt === 'due date' || cellTxt.includes('due date') || (cellTxt === 'date' && !cellTxt.includes('amount'))) && mDue < 0) mDue = c;
+            if ((cellTxt === 'amount' || cellTxt.includes('amount')) && mAmt < 0) mAmt = c;
           }
-        }
-        // Try text representation
-        else if (amountValue !== null && amountValue !== undefined) {
-          // Try to extract number from formatted text
-          const amountText = getCellText(amountCell);
-          if (amountText) {
-            // Remove currency symbols, commas, spaces, etc.
-            const cleaned = amountText.replace(/[^\d.-]/g, '');
-            const parsed = parseFloat(cleaned);
-            if (!isNaN(parsed) && parsed !== 0) {
-              rawAmount = parsed;
-            }
-          }
-          // Also try direct value if it's a string
-          if (rawAmount === 0 && typeof amountValue === 'string') {
-            const cleaned = amountValue.replace(/[^\d.-]/g, '');
-            const parsed = parseFloat(cleaned);
-            if (!isNaN(parsed) && parsed !== 0) {
-              rawAmount = parsed;
-            }
+          if (mInst > 0 && mAmt > 0) {
+            maintenanceCols = { inst: mInst, pct: mPct > 0 ? mPct : mInst + 1, due: mDue > 0 ? mDue : mInst + 2, amount: mAmt };
+            continue;
           }
         }
 
-        // Skip if both installment text and amount are empty/zero
-        if (!installmentText && rawAmount === 0) {
-          skippedRows++;
-          continue;
-        }
+        // Skip header-like rows and totals
+        if (instLower === 'installment' || instLower === 'total') continue;
+        if (!installmentVal && parseNum(amountRaw) === 0) continue;
 
-        // If we have installment text (like Q1, Q2, Down Payment, etc.), process it even with small amounts
-        const hasValidInstallmentName = installmentText && (
-          installmentText.includes('q1') || 
-          installmentText.includes('q2') || 
-          installmentText.includes('q3') || 
-          installmentText.includes('q4') ||
-          installmentText.includes('down payment') ||
-          installmentText.includes('downpayment') ||
-          installmentText.includes('installment') ||
-          /^\d+$/.test(installmentText) // Just a number
-        );
+        const rawAmount = parseNum(amountRaw);
 
-        // Skip if amount is too small (likely a percentage or invalid) - but allow if we have valid installment text
-        if (rawAmount > 0 && rawAmount < 10 && !hasValidInstallmentName && !installmentText) {
-          skippedRows++;
-          continue;
-        }
-
-        // Parse due date (try raw value first, then text for formula cells without computed result)
-        let rawDate = null;
-        if (dueDateValue) {
-          rawDate = parseExcelDate(dueDateValue);
-          if (!rawDate && dueDateCell) {
-            const dateText = getCellText(dueDateCell);
-            if (dateText) {
-              const numFromText = parseFloat(dateText.replace(/[^\d.-]/g, ''));
-              if (!isNaN(numFromText) && numFromText > 1000) {
-                rawDate = parseExcelDate(numFromText);
-              } else {
-                rawDate = parseExcelDate(dateText);
-              }
-            }
+        // Parse due date
+        let rawDate = parseExcelDate(dueRaw);
+        if (!rawDate && dueRaw != null) {
+          const dueText = typeof dueRaw === 'object' ? getCellText({ value: dueRaw }) : String(dueRaw);
+          const ddmmyyyy = dueText.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+          if (ddmmyyyy) {
+            rawDate = new Date(parseInt(ddmmyyyy[3]), parseInt(ddmmyyyy[2]) - 1, parseInt(ddmmyyyy[1]));
+            if (isNaN(rawDate.getTime())) rawDate = null;
+          } else {
+            rawDate = parseExcelDate(dueText);
           }
         }
 
-        // Percentage: display exactly as in Excel (string, no modification)
-        const percentageDisplay = percentageCell ? getCellText(percentageCell).trim() : '';
-        const percentageStr = percentageDisplay || null;
-        const rawPercentage = percentageStr != null ? parsePercentageForApi(percentageStr) : null;
-
-        // If no date found and we have firstPaymentDate, calculate based on installment number
+        // Fallback: calculate date from firstPaymentDate
         if (!rawDate && firstPaymentDate) {
           try {
-            const baseDate = new Date(firstPaymentDate);
-            const installmentNumber = currentId;
-            // Assume quarterly installments (every 3 months)
-            rawDate = addMonths(baseDate, (installmentNumber - 1) * 3);
-          } catch (error) {
-            console.error('Error calculating date from firstPaymentDate:', error);
-          }
+            rawDate = addMonths(new Date(firstPaymentDate), (currentId - 1) * 3);
+          } catch (e) { /* ignore */ }
         }
 
-        // Determine installment name - use original case for display
-        let installmentName = installmentTextRaw || installmentText;
-        if (!installmentName && rawAmount > 0) {
-          // Create default name based on position
-          if (installments.length === 0 && !foundMaintenanceSection) {
-            installmentName = 'Down Payment';
-          } else if (foundMaintenanceSection) {
-            installmentName = `Maintenance ${maintenanceDeposit.length + 1}`;
-          } else {
-            installmentName = `Q${((installments.length) % 4) + 1}`;
-          }
-        }
+        const effectiveAmtCol = (foundMaintenanceSection && maintenanceCols) ? maintenanceCols.amount : amountCol;
+        const effectiveDueCol = (foundMaintenanceSection && maintenanceCols) ? maintenanceCols.due : (dueDateCol > 0 ? dueDateCol : -1);
+        const effectivePctCol = (foundMaintenanceSection && maintenanceCols) ? maintenanceCols.pct : (pctCol > 0 ? pctCol : -1);
+        // Amount: always display with 2 decimal places
+        const amountStr = rawAmount !== 0 ? rawAmount.toFixed(2) : null;
+        const dueStr = effectiveDueCol > 0 ? (getCellText(row.getCell(effectiveDueCol)).trim() || null) : null;
+        // Pct: convert decimal (0.1667) or percent string to "XX.XX%" with 2 decimals
+        const pctCellText = effectivePctCol > 0 ? getCellText(row.getCell(effectivePctCol)).trim() : '';
+        const rawPctForDisplay = parsePercentageForApi(pctCellText || null);
+        const pctStr = rawPctForDisplay != null ? rawPctForDisplay.toFixed(2) + '%' : (pctCellText || null);
 
-        // Only create installment if we have a valid amount or name
-        if (rawAmount > 0 || installmentName) {
-          const amountDisplay = amountCell ? getCellText(amountCell).trim() : '';
-          const dueDateDisplay = dueDateCell ? getCellText(dueDateCell).trim() : '';
-          const installmentData = {
-            id: currentId++,
-            year: yearText || null,
-            number: installmentName || `Installment ${currentId - 1}`,
-            amount: amountDisplay || null,
-            dueDate: dueDateDisplay || null,
-            percentage: percentageStr,
-            rawAmount: rawAmount,
-            rawDate: rawDate,
-            rawPercentage: rawPercentage
-          };
+        if (rawAmount === 0) continue;
 
-          if (foundMaintenanceSection) {
-            maintenanceDeposit.push(installmentData);
-          } else {
-            installments.push(installmentData);
-          }
-          processedRows++;
+        const installmentData = {
+          id: foundMaintenanceSection ? maintenanceId++ : currentId++,
+          year: yearVal || null,
+          number: installmentVal || (foundMaintenanceSection ? `Maintenance ${maintenanceId - 1}` : `Installment ${currentId - 1}`),
+          amount: amountStr,
+          dueDate: dueStr,
+          percentage: pctStr,
+          rawAmount,
+          rawDate,
+          rawPercentage: parsePercentageForApi(pctStr)
+        };
+
+        if (foundMaintenanceSection) {
+          maintenanceDeposit.push(installmentData);
         } else {
-          skippedRows++;
+          installments.push(installmentData);
         }
       }
 
-      console.log(`Parsed ${installments.length} installments and ${maintenanceDeposit.length} maintenance deposit installments`);
-      console.log(`Processed ${processedRows} rows, skipped ${skippedRows} rows`);
-
-      console.log(`Parsed ${profitData.length} profit rows`);
+      console.log(`Parsed ${installments.length} installments, ${maintenanceDeposit.length} maintenance rows, ${profitData.length} profit rows`);
 
       setExcelInstallments(installments);
       setMaintenanceDepositInstallments(maintenanceDeposit);
@@ -1861,7 +1593,8 @@ const Reservations = () => {
       widthRatio: 100,
       func: handleDeleteClick,
       text: "Delete",
-      icon: "trash"
+      icon: "trash",
+      condition: (row) => row.Status !== 1 // hide for Confirmed (Status=1)
     },
   ], [mainColumnAttributes, handleDetailsClick, handleDeleteClick]);
 
@@ -1928,6 +1661,7 @@ const Reservations = () => {
         onUpdateReservationClient={handleUpdateReservationClient}
         isManagingClients={isManagingClients}
         onUpdateBrokerDeveloper={handleUpdateBrokerDeveloper}
+        onResendSuccess={() => selectedReservation?.Id && refreshSelectedReservation(selectedReservation.Id)}
       />
       
       {/* <StatusChangeDialog
