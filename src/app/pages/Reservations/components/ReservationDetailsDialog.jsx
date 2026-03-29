@@ -1035,28 +1035,26 @@ const ReservationDetailsDialog = React.memo(({
               path={reservation.ContractPdfPath}
               label="Contract PDF"
             />
-            {reservation.Status === 0 && (
-              <Box mt={1}>
-                <Box mb={0.5}>
-                  <Chip
-                    size="small"
-                    label={`Template: ${getContractTemplateName(reservation)}`}
-                    variant="outlined"
-                    color="info"
-                    sx={{ fontSize: 10 }}
-                  />
-                </Box>
-                <Button
+            <Box mt={1}>
+              <Box mb={0.5}>
+                <Chip
                   size="small"
+                  label={`Template: ${getContractTemplateName(reservation)}`}
                   variant="outlined"
-                  color="secondary"
-                  startIcon={<EditIcon />}
-                  onClick={openContractEditor}
-                >
-                  Edit Contract HTML
-                </Button>
+                  color="info"
+                  sx={{ fontSize: 10 }}
+                />
               </Box>
-            )}
+              <Button
+                size="small"
+                variant="outlined"
+                color="secondary"
+                startIcon={<EditIcon />}
+                onClick={openContractEditor}
+              >
+                Edit Contract HTML
+              </Button>
+            </Box>
           </Grid>
           
           <Grid item xs={4}>
