@@ -4,6 +4,7 @@ import Loadable from "./components/Loadable";
 //import Users from "./pages/Users/Users"
 import AuthGuard from "./auth/AuthGuard";
 import { authRoles } from "./auth/authRoles";
+import { ADMIN_TYPE, isPathAllowedForAdminType } from "./auth/adminTypes";
 import MatxLayout from "./components/MatxLayout/MatxLayout";
 
 const JwtLogin = Loadable(lazy(() => import("app/views/sessions/JwtLogin")));
@@ -17,16 +18,17 @@ const JwtResetPassword = Loadable(
   lazy(() => import("app/views/sessions/ResetPassword"))
 );
 const NotFound = Loadable(lazy(() => import("app/views/sessions/NotFound")));
-const Analytics = Loadable(lazy(() => import("app/views/dashboard/Analytics")));
+const Home = Loadable(lazy(() => import("app/views/dashboard/home")));
+const AnalyticsPage = Loadable(lazy(() => import("./pages/Analytics/Analytics")));
 const Projects = Loadable(lazy(() => import("./pages/Projects/Projects")));
 const Units = Loadable(lazy(() => import("./pages/Units/Units")));
 
 const Admins = Loadable(lazy(() => import("./pages/Admins/Admins")));
 const Sales = Loadable(lazy(() => import("./pages/Sales/Sales")));
 const Users = Loadable(lazy(() => import("./pages/Users/Users")));
-const Orientation = Loadable(lazy(() => import("./pages/Oriantation/Oriantation")));
-const Meeting = Loadable(lazy(() => import("./pages/Meeting/Meeting")));
-const Clients = Loadable(lazy(() => import("./pages/Clients/Clients")));
+// const Orientation = Loadable(lazy(() => import("./pages/Oriantation/Oriantation")));
+// const Meeting = Loadable(lazy(() => import("./pages/Meeting/Meeting")));
+// const Clients = Loadable(lazy(() => import("./pages/Clients/Clients")));
 const Reservations = Loadable(
   lazy(() => import("./pages/Reservations/Reservations"))
 );
@@ -98,53 +100,68 @@ export const pages = [
     ),
     children: [
       {
-        element: <Analytics />,
+        element: <Home />,
         auth: authRoles.admin,
-        name: "Dashboard",
-        path: "/dashboard/default",
-        icon: "dashboard",
+        allowedAdminTypes: "all",
+        name: "Home",
+        path: "/home/default",
+        icon: "home",
+      },
+      {
+        path: "/analytics",
+        element: <AnalyticsPage />,
+        auth: authRoles.admin,
+        allowedAdminTypes: [ADMIN_TYPE.SuperAdmin],
+        name: "Analytics",
+        icon: "insights",
       },
       {
         path: "/admin",
         element: <Admins />,
         auth: authRoles.admin,
-        name: "Admin Managment",
-        icon: "dashboard",
+        allowedAdminTypes: [ADMIN_TYPE.SuperAdmin],
+        name: "Admin Management",
+        icon: "admin_panel_settings",
       },
       {
         path: "/sales",
         element: <Sales />,
         auth: authRoles.admin,
-        name: "Sales Managment",
-        icon: "dashboard",
+        allowedAdminTypes: [ADMIN_TYPE.SuperAdmin],
+        name: "Sales Management",
+        icon: "trending_up",
       },
       {
         path: "/users",
         element: <Users />,
         auth: authRoles.admin,
-        name: "Users Managment",
-        icon: "dashboard",
+        allowedAdminTypes: [ADMIN_TYPE.SuperAdmin],
+        name: "Users Management",
+        icon: "people",
       },
       {
         path: "/brokers",
         element: <Brokers />,
         auth: authRoles.admin,
-        name: "Brokers Managment",
-        icon: "dashboard",
+        allowedAdminTypes: [ADMIN_TYPE.SuperAdmin],
+        name: "Brokers Management",
+        icon: "handshake",
       },
       {
         path: "/projects",
         element: <Projects />,
         auth: authRoles.admin,
-        name: "Projects Managment",
-        icon: "dashboard",
+        allowedAdminTypes: [ADMIN_TYPE.SuperAdmin],
+        name: "Projects Management",
+        icon: "apartment",
       },
       {
         path: "/units",
         element: <Units />,
         auth: authRoles.admin,
-        name: "Units Managment",
-        icon: "dashboard",
+        allowedAdminTypes: [ADMIN_TYPE.SuperAdmin],
+        name: "Units Management",
+        icon: "meeting_room",
       },
       // {
       //   path: "/reservations",
@@ -164,8 +181,9 @@ export const pages = [
         path: "/reservations",
         element: <Reservations />,
         auth: authRoles.admin,
-        icon: "dashboard",
-        name: "Reservations Managment",
+        allowedAdminTypes: "all",
+        icon: "event_available",
+        name: "Reservations Management",
       },
       // {
       //   path: "/meeting",
@@ -178,13 +196,15 @@ export const pages = [
         path: "/sessions",
         element: <SessionLogs />,
         auth: authRoles.admin,
-        icon: "dashboard",
+        allowedAdminTypes: [ADMIN_TYPE.SuperAdmin],
+        icon: "history",
         name: "Session logs",
       },
       {
         path: "/templates",
         element: <Templates />,
         auth: authRoles.admin,
+        allowedAdminTypes: [ADMIN_TYPE.SuperAdmin],
         icon: "description",
         name: "Templates",
       },
@@ -192,6 +212,7 @@ export const pages = [
         path: "/templates/:key/edit",
         element: <TemplateEditor />,
         auth: authRoles.admin,
+        allowedAdminTypes: [ADMIN_TYPE.SuperAdmin],
         icon: "description",
         name: "Template Editor",
       },
@@ -202,7 +223,7 @@ export const pages = [
   { path: "/session/signup", element: <JwtRegister /> },
   { path: "/session/forgot-password", element: <JwtForgotPassword /> },
   { path: "/session/reset-password", element: <JwtResetPassword /> },
-  { path: "/", element: <Navigate to="dashboard/default" /> },
+  { path: "/", element: <Navigate to="home/default" /> },
   { path: "*", element: <NotFound /> },
 ];
 function groupByKey(array, key) {
@@ -213,26 +234,10 @@ function groupByKey(array, key) {
     });
   }, {});
 }
-const load_pages = (roles) => {
-  const push = [];
-  const validPages = pages[0].children.filter((e) =>
-    roles.find((role) => role === e.key)
+const load_pages = (adminType) => {
+  return pages[0].children.filter((e) =>
+    !e.key && isPathAllowedForAdminType(e, adminType)
   );
-
-  // for (const property in groupByKey(validPages, "categoryId")) {
-  //   if (category.find((e) => e.Id == property))
-  //     push.push({
-  //       name: category.find((e) => e.Id == property).name,
-  //       icon: category.find((e) => e.Id == property).icon, // badge: { value: "30+", color: "secondary" },
-  //       children: groupByKey(validPages, "categoryId")[property],
-  //     });
-  // }
-  console.log(pages[0].children.filter((e) => !e.key));
-  return [
-    ...pages[0].children.filter((e) => !e.key),
-    // { label: "PAGES", type: "label" },
-    // ...push,
-  ];
 };
 
 export const navigations = load_pages;

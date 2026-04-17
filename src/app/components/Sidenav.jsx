@@ -5,6 +5,7 @@ import { MatxVerticalNav } from "app/components";
 import useSettings from "app/hooks/useSettings";
 import { navigations } from "app/navigations";
 import useAuth from "app/hooks/useAuth";
+import { getCurrentUserAdminType } from "app/auth/adminTypes";
 import { useTranslation } from "react-i18next";
 const StyledScrollBar = styled(Scrollbar)(({ i18n }) => ({
   paddingLeft: "1rem",
@@ -54,7 +55,7 @@ const Sidenav = ({ children }) => {
           </div>
         ) : null} */}
         <div className="side-content-div">
-          <MatxVerticalNav items={navigations([])} />
+          <MatxVerticalNav items={navigations(getCurrentUserAdminType())} />
         </div>
       </StyledScrollBar>
 

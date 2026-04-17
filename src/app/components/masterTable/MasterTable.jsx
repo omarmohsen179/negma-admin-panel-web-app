@@ -99,6 +99,13 @@ function MasterTable({
   editMode = "popup",
   searchPanel = true,
   onEditorPreparing,
+  columnAutoWidth = true,
+  wordWrapEnabled = true,
+  scrollingMode = "virtual",
+  rowRenderingMode = "virtual",
+  columnRenderingMode,
+  showScrollbar = "never",
+  useNativeScrolling = false,
 }) {
   const { t, i18n } = useTranslation();
   const dataGridRef = useRef(null);
@@ -114,6 +121,12 @@ function MasterTable({
   }, []);
   
   const [showFilterRow, setShowFilterRow] = useState(false);
+
+  const handleContentReady = useCallback((e) => {
+    if (e?.component?.updateDimensions) {
+      e.component.updateDimensions();
+    }
+  }, []);
 
 
 
@@ -376,9 +389,9 @@ function MasterTable({
         rtlEnabled={i18n.language === "ar"}
         showBorders={true}
         onEditorPreparing={onEditorPreparing}
-        columnAutoWidth={true}
+        columnAutoWidth={columnAutoWidth}
         allowColumnResizing={true}
-        wordWrapEnabled={true}
+        wordWrapEnabled={wordWrapEnabled}
         selection={{
           mode: selectionMode,
           allowSelectAll: allowSelectAllMode,
@@ -392,6 +405,7 @@ function MasterTable({
         onExporting={onExportingHandle}
         onRowDblClick={onRowDoubleClick}
         onSaving={onSaving}
+        onContentReady={handleContentReady}
         remoteOperations={
           remoteOperations
             ? {
@@ -441,7 +455,13 @@ function MasterTable({
             confirmDeleteMessage={t(deleteMessage)}
           /> */}
         </Editing>
-        <Scrolling mode="virtual" rowRenderingMode="virtual" />
+        <Scrolling
+          mode={scrollingMode}
+          rowRenderingMode={rowRenderingMode}
+          columnRenderingMode={columnRenderingMode}
+          showScrollbar={showScrollbar}
+          useNative={useNativeScrolling}
+        />
         <Paging enabled={true} defaultPageSize={20} />
 
         {colAttributes?.length > 0 &&
@@ -607,6 +627,7 @@ function MasterTable({
                 editCellComponent={col.editCellComponent}
                 editCellRender={col.editCellRender}
                 width={col.widthRatio ? `${col.widthRatio}px` : null}
+                minWidth={col.minWidth}
                 setCellValue={col.setCellValue}
                 editCellTemplate={
                   col.editCellTemplate ?? renderMultiSelectEditor

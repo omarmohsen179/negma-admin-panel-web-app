@@ -28,7 +28,14 @@ function CrudMUI({
   onRowInserting,
   onRowUpdating,
   apiKey = "Id",
-  selectionMode = "single"
+  selectionMode = "single",
+  columnAutoWidth = true,
+  wordWrapEnabled = true,
+  scrollingMode = "virtual",
+  rowRenderingMode = "virtual",
+  columnRenderingMode,
+  showScrollbar = "never",
+  useNativeScrolling = false,
 }) {
   const { t } = useTranslation();
   
@@ -83,6 +90,13 @@ function CrudMUI({
         onRowInserting={stableOnRowInserting}
         onRowUpdating={stableOnRowUpdating}
         selectionMode={selectionMode}
+        columnAutoWidth={columnAutoWidth}
+        wordWrapEnabled={wordWrapEnabled}
+        scrollingMode={scrollingMode}
+        rowRenderingMode={rowRenderingMode}
+        columnRenderingMode={columnRenderingMode}
+        showScrollbar={showScrollbar}
+        useNativeScrolling={useNativeScrolling}
       />
     </>
   );
@@ -101,6 +115,13 @@ export default React.memo(CrudMUI, (prevProps, nextProps) => {
     prevProps.apiKey === nextProps.apiKey &&
     prevProps.apiPayload === nextProps.apiPayload &&
     prevProps.selectionMode === nextProps.selectionMode &&
+    prevProps.columnAutoWidth === nextProps.columnAutoWidth &&
+    prevProps.wordWrapEnabled === nextProps.wordWrapEnabled &&
+    prevProps.scrollingMode === nextProps.scrollingMode &&
+    prevProps.rowRenderingMode === nextProps.rowRenderingMode &&
+    prevProps.columnRenderingMode === nextProps.columnRenderingMode &&
+    prevProps.showScrollbar === nextProps.showScrollbar &&
+    prevProps.useNativeScrolling === nextProps.useNativeScrolling &&
     prevProps.onSelectionChanged === nextProps.onSelectionChanged &&
     prevProps.onToolbarPreparing === nextProps.onToolbarPreparing &&
     prevProps.onEditorPreparing === nextProps.onEditorPreparing &&

@@ -171,6 +171,10 @@ const Users = () => {
             id: 2,
             name: "Customer Support",
           },
+          {
+            id: 3,
+            name: "Super Admin",
+          },
         ],
       },
       {

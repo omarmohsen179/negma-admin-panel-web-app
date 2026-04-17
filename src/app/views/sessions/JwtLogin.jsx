@@ -15,6 +15,10 @@ import { Formik } from "formik";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink, useNavigate } from "react-router-dom";
+import {
+  getCurrentUserAdminType,
+  getLandingPathForAdminType,
+} from "app/auth/adminTypes";
 import * as Yup from "yup";
 const FlexBox = styled(Box)(() => ({ display: "flex", alignItems: "center" }));
 
@@ -69,7 +73,7 @@ const JwtLogin = () => {
     setLoading(true);
     try {
       await login(values.email, values.password);
-      navigate("/");
+      navigate(getLandingPathForAdminType(getCurrentUserAdminType()));
     } catch (e) {
       const isAccessDenied = e?.message?.includes("Access denied");
       setErrorMessage(

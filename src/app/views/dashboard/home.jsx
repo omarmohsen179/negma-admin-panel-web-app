@@ -1424,7 +1424,7 @@ const QuickReference = () => (
 
 // ─── Root Export ─────────────────────────────────────────────────────────────
 
-export default function Analytics() {
+export default function Home() {
   return (
     <ContentBox>
       <HeroBanner />
